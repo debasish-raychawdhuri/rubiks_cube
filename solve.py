@@ -53,10 +53,11 @@ class NeighborDirection(Enum):
 
 
 class FaceState:
-    def __init__(self):
-        self.array = [BitVec(""), BitVec(""), BitVec(""),
-                      BitVec(""), BitVec(""), BitVec(""),
-                      BitVec(""), BitVec(""), BitVec("")]
+    def __init__(self, face):
+        self.array = [BitVec(str(face)+"0"), BitVec(str(face)+"1"), BitVec(str(face)+"2"),
+                      BitVec(str(face)+"3"), BitVec(str(face) +
+                                                    "4"), BitVec(str(face)+"5"),
+                      BitVec(str(face)+"6"), BitVec(str(face)+"7"), BitVec(str(face)+"8")]
 
     def get_bits(self, square):
         return self.array[square]
@@ -64,8 +65,23 @@ class FaceState:
 
 class CubeState:
     def __init__(self):
-        self.array = [FaceState(), FaceState(), FaceState(),
-                      FaceState(), FaceState(), FaceState()]
+        self.array = [FaceState(0), FaceState(1), FaceState(2),
+                      FaceState(3), FaceState(4), FaceState(5)]
+
+    @staticmethod
+    def is_attached(face, pos, neighbor_face):
+        if neighbor_face-face == 1 or face-neighbor_face == 1:
+            return False
+        neg_face = (face >> 1) << 1
+        neg_neighbor_face = (neighbor_face >> 1) << 1
+        neighbor_dir = (neighbor_face % 2)*2
+
+        vpos = pos//3
+        hpos = pos % 3
+        if (neg_neighbor_face+6-neg_face) % 6 == 4:
+            return vpos == neighbor_dir
+        else:
+            return hpos == neighbor_dir
 
     @staticmethod
     def get_neighbor_array_pos(face, position, n_dir):
@@ -134,6 +150,13 @@ class CubeState:
                 constraints.add(self.array[face_v_pos][vp_pos] ==
                                 final_state.array[face_h_neg][nhn_pos])
 
+        for f in range(0, 6):
+            if f != face:
+                for i in range(0, 9):
+                    if not CubeState.is_attached(f, i, face):
+                        constraints.add(
+                            self.array[f][i] == final_state.array[f][i])
+
 
 b1 = Bool("b1")
 b2 = Bool("b2")
@@ -151,9 +174,7 @@ print(CubeState.get_neighbor_array_pos(0, 8, NeighborDirection.VP))
 print(CubeState.get_neighbor_array_pos(3, 8, NeighborDirection.VP))
 print(CubeState.get_neighbor_array_pos(3, 2, NeighborDirection.HP))
 
-
-for i in range(0, zzzZ):
-    print(i)
+print(CubeState.is_attached(1, 8, 3))
 
 
 def solve(phi):
