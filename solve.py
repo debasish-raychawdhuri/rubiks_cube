@@ -47,8 +47,8 @@ def minimize(phi, objective):
 
 class NeighborDirection(Enum):
     HP = 0,
-    HN = 1,
-    VP = 2,
+    VP = 1,
+    HN = 2,
     VN = 3
 
 
@@ -86,83 +86,53 @@ class CubeState:
             return -1
         return nvpos*3+nhpos
 
-    def rotate_sides(self, final_state, face, constraints):
+    # Rotates positive face anti clockwise and negative face clockwise
+
+    def __rotate_face(self, final_state, face, constraints):
+
+        rotation_map = [2, 5, 8, 1, 4, 7, 0, 3, 6]
+
         negative_face = (face >> 1) << 1
         face_h_neg = (negative_face+2) % 6
         face_h_pos = (negative_face+3) % 6
         face_v_neg = (negative_face+4) % 6
         face_v_pos = (negative_face+5) % 6
-        if face % 2 == 0:
-            constraints.add(self.array[face_h_neg][0]
-                            == final_state.array[face_v_neg][6])
-            constraints.add(self.array[face_h_neg][1]
-                            == final_state.array[face_v_neg][3])
-            constraints.add(self.array[face_v_neg][2]
-                            == final_state.array[face][0])
 
-            constraints.add(self.array[face_v_pos][0] ==
-                            final_state.array[face_h_neg][0])
-            constraints.add(self.array[face_v_pos][3] ==
-                            final_state.array[face_h_neg][1])
-            constraints.add(self.array[face_v_pos][6] ==
-                            final_state.array[face_h_neg][2])
+        for i in Range(0, 8):
+            print(i)
+            f_i = rotation_map[i]
+            constraints.add(self.array[face][i] ==
+                            final_state.array[face][f_i])
+            hn_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.HN)
+            hp_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.HP)
+            vn_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.VN)
+            vp_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.VP)
 
-            constraints.add(self.array[face_h_pos][0] ==
-                            final_state.array[face_v_pos][6])
-            constraints.add(self.array[face_h_pos][1] ==
-                            final_state.array[face_v_pos][3])
-            constraints.add(self.array[face_h_pos][2] ==
-                            final_state.array[face_v_pos][0])
+            if hn_pos >= 0:
+                nvn_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.VN)
+                constraints.add(self.array[face_h_neg][hn_pos] ==
+                                final_state.array[face_v_neg][nvn_pos])
+            if vn_pos >= 0:
+                nhp_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.HP)
+                constraints.add(self.array[face_v_neg][vn_pos] ==
+                                final_state.array[face_h_pos][nhp_pos])
+            if hp_pos >= 0:
+                nvp_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.VP)
+                constraints.add(self.array[face_h_pos][hp_pos] ==
+                                final_state.array[face_v_pos][nvp_pos])
 
-            constraints.add(self.array[face_v_neg][0] ==
-                            final_state.array[face_h_pos][0])
-            constraints.add(self.array[face_v_neg][3] ==
-                            final_state.array[face_h_pos][1])
-            constraints.add(self.array[face_v_neg][6] ==
-                            final_state.array[face_h_pos][2])
-        else:
-            constraints.add(self.array[face_h_neg][6]
-                            == final_state.array[face_v_neg][8])
-            constraints.add(self.array[face_h_neg][7]
-                            == final_state.array[face_v_neg][5])
-            constraints.add(self.array[face_v_neg][8]
-                            == final_state.array[face][2])
-
-            constraints.add(self.array[face_v_pos][8] ==
-                            final_state.array[face_h_neg][6])
-            constraints.add(self.array[face_v_pos][5] ==
-                            final_state.array[face_h_neg][7])
-            constraints.add(self.array[face_v_pos][2] ==
-                            final_state.array[face_h_neg][8])
-
-            constraints.add(self.array[face_h_pos][6] ==
-                            final_state.array[face_v_pos][8])
-            constraints.add(self.array[face_h_pos][7] ==
-                            final_state.array[face_v_pos][5])
-            constraints.add(self.array[face_h_pos][8] ==
-                            final_state.array[face_v_pos][2])
-
-            constraints.add(self.array[face_v_neg][8] ==
-                            final_state.array[face_h_pos][8])
-            constraints.add(self.array[face_v_neg][5] ==
-                            final_state.array[face_h_pos][7])
-            constraints.add(self.array[face_v_neg][2] ==
-                            final_state.array[face_h_pos][6])
-
-    # Rotates positive face anti clockwise and negative face clockwise
-
-    def __rotate_face(self, final_state, face, constraints):
-        constraints.add(self.array[face][0] == final_state.array[face][2])
-        constraints.add(self.array[face][1] == final_state.array[face][5])
-        constraints.add(self.array[face][2] == final_state.array[face][8])
-        constraints.add(self.array[face][3] == final_state.array[face][1])
-        constraints.add(self.array[face][4] == final_state.array[face][4])
-        constraints.add(self.array[face][5] == final_state.array[face][7])
-        constraints.add(self.array[face][6] == final_state.array[face][0])
-        constraints.add(self.array[face][7] == final_state.array[face][3])
-        constraints.add(self.array[face][8] == final_state.array[face][6])
-
-        self.rotate_sides(final_state, face, constraints)
+            if vp_pos >= 0:
+                nhn_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.HN)
+                constraints.add(self.array[face_v_pos][vp_pos] ==
+                                final_state.array[face_h_neg][nhn_pos])
 
 
 b1 = Bool("b1")
@@ -173,13 +143,17 @@ solver = Solver()
 cond1 = Implies(x < y, b1)
 cond2 = Implies(x > y, b2)
 phi = And(cond1, cond2, Or(b1, b2), x >= 0, y > 0)
-minimize(phi, y)
+minimize(phi, x)
 
 
 print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
 print(CubeState.get_neighbor_array_pos(0, 8, NeighborDirection.VP))
 print(CubeState.get_neighbor_array_pos(3, 8, NeighborDirection.VP))
 print(CubeState.get_neighbor_array_pos(3, 2, NeighborDirection.HP))
+
+
+for i in range(0, zzzZ):
+    print(i)
 
 
 def solve(phi):
