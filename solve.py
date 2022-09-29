@@ -215,6 +215,106 @@ class CubePath:
         return And(self.contraints)
 
 
+class ValueCubeFace:
+    def __init__(self, id):
+        self.id = id
+        self.array = [id, id, id, id, id, id]
+
+
+class ValueCube:
+    def __init__(self):
+        self.array = [ValueCubeFace(0), ValueCubeFace(
+            1), ValueCubeFace(2), ValueCubeFace(3), ValueCubeFace(4), ValueCubeFace(5)]
+
+    def __rotate_face(self, face, dir):
+        if dir == 0:
+            rotation_map = [2, 5, 8, 1, 4, 7, 0, 3, 6]
+        else:
+            rotation_map = [6, 3, 0, 7, 4, 1, 8, 5, 2]
+        final_state = ValueCube()
+        negative_face = (face >> 1) << 1
+        face_h_neg = (negative_face+2) % 6
+        face_h_pos = (negative_face+3) % 6
+        face_v_neg = (negative_face+4) % 6
+        face_v_pos = (negative_face+5) % 6
+
+        for i in range(0, 8):
+            f_i = rotation_map[i]
+            final_state.array[face].array[i] = self.array[face].array[f_i]
+            hn_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.HN)
+            hp_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.HP)
+            vn_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.VN)
+            vp_pos = CubeState.get_neighbor_array_pos(
+                face, i, NeighborDirection.VP)
+
+            if hn_pos >= 0:
+                nvn_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.VN)
+                final_state.array[face_h_neg].array[hn_pos] = self.array[face_v_neg].array[nvn_pos]
+            if vn_pos >= 0:
+                nhp_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.HP)
+                final_state.array[face_v_neg].array[vn_pos] = self.array[face_h_pos].array[nhp_pos]
+            if hp_pos >= 0:
+                nvp_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.VP)
+                final_state.array[face_h_pos].array[hp_pos] = self.array[face_v_pos].array[nvp_pos]
+
+            if vp_pos >= 0:
+                nhn_pos = CubeState.get_neighbor_array_pos(
+                    face, f_i, NeighborDirection.HN)
+                final_state.array[face_v_pos].array[vp_pos] = final_state.array[face_h_neg].array[nhn_pos]
+
+        for f in range(0, 6):
+            if f != face:
+                for i in range(0, 9):
+                    if not CubeState.is_attached(f, i, face):
+                        final_state.array[f].array[i] = self.array[f].array[i]
+        return final_state
+
+    def rotate_face(self, face, dir):
+        if face == 6:
+            return self
+        if dir == 0:
+            return self.__rotate_face(face, dir)
+        else:
+            return self.__rotate_face(face, dir)
+
+    # Print the cube in human readable format.
+    # Positions on a negative face -
+    #
+    #           2  5  8
+    #           1  4  7
+    #           0  3  6
+    #          ---------
+    # 6  3  0 | 0  1  2 | 0  3  6
+    # 7  4  1 | 3  4  5 | 1  4  7
+    # 8  5  2 | 6  7  8 | 2  5  8
+    #          ---------
+    #           0  3  6
+    #           1  4  7
+    #           2  5  8
+
+    # Postions on a positive face -
+    #           6  3  0
+    #           7  4  1
+    #           8  5  2
+    #          ---------
+    # 0  3  6 | 2  1  0 | 6  3  0
+    # 1  4  7 | 5  4  3 | 7  4  1
+    # 2  5  8 | 8  7  6 | 8  5  2
+    #          ---------
+    #           8  5  2
+    #           7  4  1
+    #           6  3  0
+
+    def print_cube(self):
+        print("Cube")
+
+
 b1 = Bool("b1")
 b2 = Bool("b2")
 x = Int("x")
