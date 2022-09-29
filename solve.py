@@ -1,7 +1,10 @@
+from ast import For
 from asyncio import constants
 from ctypes.wintypes import HPALETTE
 from z3 import *
 from enum import Enum
+from colorama import Fore
+from colorama import Style
 
 
 def minimize(phi, objective):
@@ -218,7 +221,7 @@ class CubePath:
 class ValueCubeFace:
     def __init__(self, id):
         self.id = id
-        self.array = [id, id, id, id, id, id]
+        self.array = [id, id, id, id, id, id, id, id, id]
 
 
 class ValueCube:
@@ -311,8 +314,67 @@ class ValueCube:
     #           7  4  1
     #           6  3  0
 
+    @staticmethod
+    def get_face_id_index(x, y):
+        if (y//3) != 1 and (x//3) != 1:
+            return (-1, 0)
+
+        elif (y//3) == 0:
+            hpos = 2-y
+            vpos = x-3
+            face = 4
+        elif (y//3) == 3:
+            vpos = 11-y
+            hpos = x-3
+            face = 1
+        elif (y//3) == 2:
+            hpos = y-6
+            vpos = x-3
+            face = 5
+        elif (x//3) == 0:
+            vpos = 2-x
+            hpos = y-3
+            face = 2
+        elif (x//3) == 1 and (y//3) == 1:
+            hpos = x-3
+            vpos = y-3
+            face = 0
+        elif (x//3) == 2:
+            vpos = x-6
+            hpos = y-3
+            face = 3
+
+        return (face, vpos*3+hpos)
+
+    def print_index_chart(self):
+        colors = [Fore.RED, Fore.LIGHTMAGENTA_EX,
+                  Fore.GREEN, Fore.BLUE, Fore.WHITE, Fore.YELLOW]
+        for y in range(0, 12):
+            print("")
+
+            for x in range(0, 9):
+                if x % 3 == 0 and x > 0:
+                    print("| ", end="")
+                (face, index) = ValueCube.get_face_id_index(x, y)
+                if face >= 0:
+                    color = colors[self.array[face].array[index]]
+
+                    print(f"{color}{index}{Fore.RESET}", end=" ")
+                else:
+                    print(" ", end=" ")
+            if y % 3 == 2:
+                print("")
+                for x in range(0, 9):
+                    if x % 3 == 0 and x > 0:
+                        print(" ", end="")
+                    (face, index) = ValueCube.get_face_id_index(x, y)
+                    if face >= 0 and face != 2 and face != 3:
+                        print("-", end="-")
+                    else:
+                        print(" ", end=" ")
+
     def print_cube(self):
-        print("Cube")
+        self.print_index_chart()
 
 
 b1 = Bool("b1")
@@ -327,6 +389,8 @@ minimize(phi, x)
 
 cubepath = CubePath()
 cubepath.add_n_rotations(10)
+
+ValueCube().print_index_chart()
 
 
 print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
