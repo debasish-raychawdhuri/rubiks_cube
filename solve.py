@@ -244,7 +244,7 @@ class ValueCube:
         for i in range(0, 9):
 
             f_i = rotation_map[i]
-            final_state.array[face].array[i] = self.array[face].array[f_i]
+            final_state.array[face].array[f_i] = self.array[face].array[i]
             hn_pos = CubeState.get_neighbor_array_pos(
                 face, i, NeighborDirection.HN)
             hp_pos = CubeState.get_neighbor_array_pos(
@@ -391,7 +391,7 @@ class ValueCube:
 # cubepath = CubePath()
 # cubepath.add_n_rotations(10)
 
-ValueCube().rotate_face(1, 0).print_index_chart()
+ValueCube().rotate_face(1, 0).rotate_face(2, 0).print_index_chart()
 
 
 # print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
