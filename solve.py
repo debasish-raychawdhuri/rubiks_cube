@@ -80,7 +80,7 @@ class CubeState:
 
     @staticmethod
     def is_attached(face, pos, neighbor_face):
-        if neighbor_face-face == 1 or face-neighbor_face == 1:
+        if face//2 == neighbor_face//2:
             return False
         neg_face = (face >> 1) << 1
         neg_neighbor_face = (neighbor_face >> 1) << 1
@@ -124,7 +124,7 @@ class CubeState:
         face_v_neg = (negative_face+4) % 6
         face_v_pos = (negative_face+5) % 6
 
-        for i in range(0, 8):
+        for i in range(0, 9):
             f_i = rotation_map[i]
             constraints.append(self.array[face].array[i] ==
                                final_state.array[face].array[f_i])
@@ -241,7 +241,8 @@ class ValueCube:
         face_v_neg = (negative_face+4) % 6
         face_v_pos = (negative_face+5) % 6
 
-        for i in range(0, 8):
+        for i in range(0, 9):
+
             f_i = rotation_map[i]
             final_state.array[face].array[i] = self.array[face].array[f_i]
             hn_pos = CubeState.get_neighbor_array_pos(
@@ -256,26 +257,26 @@ class ValueCube:
             if hn_pos >= 0:
                 nvn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VN)
-                final_state.array[face_h_neg].array[hn_pos] = self.array[face_v_neg].array[nvn_pos]
+                final_state.array[face_v_neg].array[nvn_pos] = self.array[face_h_neg].array[hn_pos]
             if vn_pos >= 0:
                 nhp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HP)
-                final_state.array[face_v_neg].array[vn_pos] = self.array[face_h_pos].array[nhp_pos]
+                final_state.array[face_h_pos].array[nhp_pos] = self.array[face_v_neg].array[vn_pos]
             if hp_pos >= 0:
                 nvp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VP)
-                final_state.array[face_h_pos].array[hp_pos] = self.array[face_v_pos].array[nvp_pos]
+                final_state.array[face_v_pos].array[nvp_pos] = self.array[face_h_pos].array[hp_pos]
 
             if vp_pos >= 0:
                 nhn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HN)
-                final_state.array[face_v_pos].array[vp_pos] = final_state.array[face_h_neg].array[nhn_pos]
+                final_state.array[face_h_neg].array[nhn_pos] = self.array[face_v_pos].array[vp_pos]
 
         for f in range(0, 6):
             if f != face:
-                for i in range(0, 9):
-                    if not CubeState.is_attached(f, i, face):
-                        final_state.array[f].array[i] = self.array[f].array[i]
+                for j in range(0, 9):
+                    if not CubeState.is_attached(f, j, face):
+                        final_state.array[f].array[j] = self.array[f].array[j]
         return final_state
 
     def rotate_face(self, face, dir):
@@ -377,26 +378,26 @@ class ValueCube:
         self.print_index_chart()
 
 
-b1 = Bool("b1")
-b2 = Bool("b2")
-x = Int("x")
-y = Int("y")
-solver = Solver()
-cond1 = Implies(x < y, b1)
-cond2 = Implies(x > y, b2)
-phi = And(cond1, cond2, Or(b1, b2), x >= 0, y > 0)
-minimize(phi, x)
+# b1 = Bool("b1")
+# b2 = Bool("b2")
+# x = Int("x")
+# y = Int("y")
+# solver = Solver()
+# cond1 = Implies(x < y, b1)
+# cond2 = Implies(x > y, b2)
+# phi = And(cond1, cond2, Or(b1, b2), x >= 0, y > 0)
+# minimize(phi, x)
 
-cubepath = CubePath()
-cubepath.add_n_rotations(10)
+# cubepath = CubePath()
+# cubepath.add_n_rotations(10)
 
-ValueCube().print_index_chart()
+ValueCube().rotate_face(1, 0).print_index_chart()
 
 
-print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
-print(CubeState.get_neighbor_array_pos(0, 8, NeighborDirection.VP))
-print(CubeState.get_neighbor_array_pos(3, 8, NeighborDirection.VP))
-print(CubeState.get_neighbor_array_pos(3, 2, NeighborDirection.HP))
+# print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
+# print(CubeState.get_neighbor_array_pos(0, 8, NeighborDirection.VP))
+# print(CubeState.get_neighbor_array_pos(3, 8, NeighborDirection.VP))
+# print(CubeState.get_neighbor_array_pos(3, 2, NeighborDirection.HP))
 
 print(CubeState.is_attached(1, 8, 3))
 
