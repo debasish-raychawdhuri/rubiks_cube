@@ -350,12 +350,20 @@ class ValueCube:
     def print_index_chart(self):
         colors = [Fore.RED, Fore.LIGHTMAGENTA_EX,
                   Fore.GREEN, Fore.BLUE, Fore.WHITE, Fore.YELLOW]
+
+        for x in range(0, 3):
+            print("   ", end="")
+        for x in range(3, 6):
+            print("--", end="")
+        print("-", end="")
         for y in range(0, 12):
             print("")
 
             for x in range(0, 9):
-                if x % 3 == 0 and x > 0:
+                if x % 3 == 0 and (x > 0 or y > 2 and y < 6):
                     print("| ", end="")
+                elif x == 0:
+                    print("  ", end="")
                 (face, index) = ValueCube.get_face_id_index(x, y)
                 if face >= 0:
                     color = colors[self.array[face].array[index]]
@@ -363,13 +371,17 @@ class ValueCube:
                     print(f"{color}{index}{Fore.RESET}", end=" ")
                 else:
                     print(" ", end=" ")
+                if y >= 3 and y < 6 and x >= 8:
+                    print("|", end=" ")
             if y % 3 == 2:
                 print("")
                 for x in range(0, 9):
-                    if x % 3 == 0 and x > 0:
-                        print(" ", end="")
+                    if x % 3 == 0 and (x//3 == 1 or y < 6):
+                        print(" -", end="")
+                    elif x % 3 == 0:
+                        print("  ", end="")
                     (face, index) = ValueCube.get_face_id_index(x, y)
-                    if face >= 0 and face != 2 and face != 3:
+                    if y < 6 or (x//3) % 3 == 1:
                         print("-", end="-")
                     else:
                         print(" ", end=" ")
