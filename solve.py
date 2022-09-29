@@ -1,3 +1,4 @@
+from asyncio import constants
 from ctypes.wintypes import HPALETTE
 from z3 import *
 from enum import Enum
@@ -53,20 +54,26 @@ class NeighborDirection(Enum):
 
 
 class FaceState:
-    def __init__(self, face):
-        self.array = [BitVec(str(face)+"0"), BitVec(str(face)+"1"), BitVec(str(face)+"2"),
-                      BitVec(str(face)+"3"), BitVec(str(face) +
-                                                    "4"), BitVec(str(face)+"5"),
-                      BitVec(str(face)+"6"), BitVec(str(face)+"7"), BitVec(str(face)+"8")]
+    def __init__(self, cube, face):
+        lead_str = "cube:"+str(cube)+" face:"+str(face) + "square:"
+        self.array = [
+            BitVec(lead_str+"0", 3), BitVec(lead_str +
+                                            "1", 3), BitVec(lead_str+"2", 3),
+            BitVec(lead_str+"3", 3), BitVec(lead_str +
+                                            "4", 3), BitVec(lead_str+"5", 3),
+            BitVec(lead_str+"6", 3), BitVec(lead_str +
+                                            "7", 3), BitVec(lead_str+"8", 3)
+        ]
 
     def get_bits(self, square):
         return self.array[square]
 
 
 class CubeState:
-    def __init__(self):
-        self.array = [FaceState(0), FaceState(1), FaceState(2),
-                      FaceState(3), FaceState(4), FaceState(5)]
+    def __init__(self, id):
+        self.id = id
+        self.array = [FaceState(id, 0), FaceState(id, 1), FaceState(id, 2),
+                      FaceState(id, 3), FaceState(id, 4), FaceState(id, 5)]
 
     @staticmethod
     def is_attached(face, pos, neighbor_face):
@@ -104,8 +111,8 @@ class CubeState:
 
     # Rotates positive face anti clockwise and negative face clockwise
 
-    def __rotate_face(self, final_state, face, constraints):
-
+    def __rotate_face(self, final_state, face):
+        constraints = []
         rotation_map = [2, 5, 8, 1, 4, 7, 0, 3, 6]
 
         negative_face = (face >> 1) << 1
@@ -114,11 +121,10 @@ class CubeState:
         face_v_neg = (negative_face+4) % 6
         face_v_pos = (negative_face+5) % 6
 
-        for i in Range(0, 8):
-            print(i)
+        for i in range(0, 8):
             f_i = rotation_map[i]
-            constraints.add(self.array[face][i] ==
-                            final_state.array[face][f_i])
+            constraints.append(self.array[face].array[i] ==
+                               final_state.array[face].array[f_i])
             hn_pos = CubeState.get_neighbor_array_pos(
                 face, i, NeighborDirection.HN)
             hp_pos = CubeState.get_neighbor_array_pos(
@@ -131,31 +137,82 @@ class CubeState:
             if hn_pos >= 0:
                 nvn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VN)
-                constraints.add(self.array[face_h_neg][hn_pos] ==
-                                final_state.array[face_v_neg][nvn_pos])
+                constraints.append(self.array[face_h_neg].array[hn_pos] ==
+                                   final_state.array[face_v_neg].array[nvn_pos])
             if vn_pos >= 0:
                 nhp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HP)
-                constraints.add(self.array[face_v_neg][vn_pos] ==
-                                final_state.array[face_h_pos][nhp_pos])
+                constraints.append(self.array[face_v_neg].array[vn_pos] ==
+                                   final_state.array[face_h_pos].array[nhp_pos])
             if hp_pos >= 0:
                 nvp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VP)
-                constraints.add(self.array[face_h_pos][hp_pos] ==
-                                final_state.array[face_v_pos][nvp_pos])
+                constraints.append(self.array[face_h_pos].array[hp_pos] ==
+                                   final_state.array[face_v_pos].array[nvp_pos])
 
             if vp_pos >= 0:
                 nhn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HN)
-                constraints.add(self.array[face_v_pos][vp_pos] ==
-                                final_state.array[face_h_neg][nhn_pos])
+                constraints.append(self.array[face_v_pos].array[vp_pos] ==
+                                   final_state.array[face_h_neg].array[nhn_pos])
 
         for f in range(0, 6):
             if f != face:
                 for i in range(0, 9):
                     if not CubeState.is_attached(f, i, face):
-                        constraints.add(
-                            self.array[f][i] == final_state.array[f][i])
+                        constraints.append(
+                            self.array[f].array[i] == final_state.array[f].array[i])
+        return And(constraints)
+
+    def __rotate_nothing(self, final_state):
+        constraints = []
+        for f in range(0, 6):
+            for i in range(0, 9):
+                constraints.append(
+                    self.array[f].array[i] == final_state.array[f].array[i])
+        return And(constraints)
+
+    def rotate_face(self, final_state, face, dir):
+        if face == 6:
+            return self.__rotate_nothing(final_state)
+        if dir == 0:
+            return self.__rotate_face(final_state, face)
+        else:
+            return final_state.__rotate_face(self, face)
+
+
+class CubePath:
+    def __init__(self):
+        self.states = [CubeState(0)]
+        self.moves = []
+        self.is_rotated = []
+        self.constraints = []
+
+    def add_rotation(self):
+        constraints = []
+        final_state = CubeState(len(self.states))
+        move = BitVec("Move:"+str(len(self.moves)), 4)
+        rotated = Int("R:"+str(len(self.is_rotated)))
+        last_state = self.states[len(self.states)-1]
+        self.states.append(final_state)
+        self.moves.append(move)
+        self.is_rotated.append(rotated)
+
+        constraints.append((rotated >= 0))
+        constraints.append(Implies((rotated == 0), move == 12))
+        for i in range(0, 13):
+            face = i//2
+            dir = i % 2
+            constraints.append(Implies(move == i,
+                               last_state.rotate_face(final_state, face, dir)))
+        self.constraints.append(And(constraints))
+
+    def add_n_rotations(self, n):
+        for i in range(0, n):
+            self.add_rotation()
+
+    def get_constraints(self):
+        return And(self.contraints)
 
 
 b1 = Bool("b1")
@@ -167,6 +224,9 @@ cond1 = Implies(x < y, b1)
 cond2 = Implies(x > y, b2)
 phi = And(cond1, cond2, Or(b1, b2), x >= 0, y > 0)
 minimize(phi, x)
+
+cubepath = CubePath()
+cubepath.add_n_rotations(10)
 
 
 print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
@@ -180,7 +240,7 @@ print(CubeState.is_attached(1, 8, 3))
 def solve(phi):
     s = Solver()
 
-    s.add(phi)
+    s.append(phi)
     c = s.check()
     if c == sat:
         print(s.model())
