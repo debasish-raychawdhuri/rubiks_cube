@@ -230,10 +230,10 @@ class ValueCube:
             1), ValueCubeFace(2), ValueCubeFace(3), ValueCubeFace(4), ValueCubeFace(5)]
 
     def __rotate_face(self, face, dir):
-        if dir == 0:
-            rotation_map = [2, 5, 8, 1, 4, 7, 0, 3, 6]
-        else:
-            rotation_map = [6, 3, 0, 7, 4, 1, 8, 5, 2]
+        if dir == 1:
+            return self.__rotate_face(face, 0).__rotate_face(face, 0).__rotate_face(face, 0)
+
+        rotation_map = [2, 5, 8, 1, 4, 7, 0, 3, 6]
         final_state = ValueCube()
         negative_face = (face >> 1) << 1
         face_h_neg = (negative_face+2) % 6
@@ -391,7 +391,7 @@ class ValueCube:
 # cubepath = CubePath()
 # cubepath.add_n_rotations(10)
 
-ValueCube().rotate_face(1, 0).rotate_face(2, 0).print_index_chart()
+ValueCube().rotate_face(0, 0).rotate_face(2, 1).print_index_chart()
 
 
 # print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
