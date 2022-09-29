@@ -55,7 +55,7 @@ class NeighborDirection(Enum):
 
 class FaceState:
     def __init__(self, cube, face):
-        lead_str = "cube:"+str(cube)+" face:"+str(face) + "square:"
+        lead_str = "C:"+str(cube)+"F:"+str(face) + "S:"
         self.array = [
             BitVec(lead_str+"0", 3), BitVec(lead_str +
                                             "1", 3), BitVec(lead_str+"2", 3),
@@ -191,7 +191,7 @@ class CubePath:
     def add_rotation(self):
         constraints = []
         final_state = CubeState(len(self.states))
-        move = BitVec("Move:"+str(len(self.moves)), 4)
+        move = BitVec("M:"+str(len(self.moves)), 4)
         rotated = Int("R:"+str(len(self.is_rotated)))
         last_state = self.states[len(self.states)-1]
         self.states.append(final_state)
