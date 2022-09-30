@@ -1,10 +1,14 @@
 from ast import For
 from asyncio import constants
 from ctypes.wintypes import HPALETTE
+from multiprocessing.sharedctypes import Value
+from operator import mod
 from z3 import *
 from enum import Enum
 from colorama import Fore
 from colorama import Style
+
+import functools
 
 
 def minimize(phi, objective):
@@ -13,14 +17,14 @@ def minimize(phi, objective):
     h = s.minimize(objective)
     c = s.check()
     if c == sat:
-        print(s.model())
+        return s.model()
     elif c == unsat:
         print("unsat")
     else:
         print("That was too hard a problem for me, maybe I should go to IITB")
 
 
-# Symmetric encoding of a Rubik's cube. Each color is encoded by a BitVector with 6 bits, each corresponding to one color. The faces are marked by the direction, X,Y,Z (in a right handed coordinate system) and each face is marked by the axis and a positive or negative direction. Each square on a face is marked using which other faces they are connected to. Each face is connected to four other faces. This is encoded in two trinary bits (0 representing the negative side of the axis, 1 non-attachment to the axis, 2-attachment with the positive side.). If we are considering the (X,+) face, the (Y,+) side is on the right and (Z,+) face is on the top. The square connected to (Y,-) and (Z,+) is at position (0,2) on the face. The center square is (1,1). The square connected to only the (Z,+) face is (1,2) [1 because it is not connected to the Y axis and 2 because it is attached to the positive side of Z]. The faces are numberd 0 to 5 in (X,-), (X,+),...,(Z,+).
+# Symmetric encoding of a Rubik's cube. Each color is encoded by a BitVector with 3 bits, with binary encoding for each color. The faces are marked by the direction, X,Y,Z (in a right handed coordinate system) and each face is marked by the axis and a positive or negative direction. Each square on a face is marked using which other faces they are connected to. Each face is connected to four other faces. This is encoded in two trinary bits (0 representing the negative side of the axis, 1 non-attachment to the axis, 2-attachment with the positive side.). If we are considering the (X,+) face, the (Y,+) side is on the right and (Z,+) face is on the top. The square connected to (Y,-) and (Z,+) is at position (0,2) on the face. The center square is (1,1). The square connected to only the (Z,+) face is (1,2) [1 because it is not connected to the Y axis and 2 because it is attached to the positive side of Z]. The faces are numberd 0 to 5 in (X,-), (X,+),...,(Z,+).
 
 # Positions on a negative face -
 #           2  5  8
@@ -112,6 +116,14 @@ class CubeState:
             return -1
         return nvpos*3+nhpos
 
+    def set_value_constraints(self, value_cube):
+        constraints = []
+        for face in range(0, 6):
+            for index in range(0, 9):
+                constraints.append(
+                    self.array[face].array[index] == value_cube.array[face].array[index])
+        return And(constraints)
+
     # Rotates positive face anti clockwise and negative face clockwise
 
     def __rotate_face(self, final_state, face):
@@ -191,6 +203,17 @@ class CubePath:
         self.is_rotated = []
         self.constraints = []
 
+    def set_init_constraints(self, value_cube):
+        self.constraints.append(
+            self.states[0].set_value_constraints(value_cube))
+
+    def add_target_constraint(self, face, index, value):
+        self.constraints.append(
+            self.states[len(self.states)-1].array[face].array[index] == value)
+
+    def get_move_count(self):
+        return functools.reduce(lambda x, y: x+y, self.is_rotated, 0)
+
     def add_rotation(self):
         constraints = []
         final_state = CubeState(len(self.states))
@@ -202,6 +225,12 @@ class CubePath:
         self.is_rotated.append(rotated)
 
         constraints.append((rotated >= 0))
+
+        or_const = []
+        for i in range(0, 13):
+            or_const.append(move == i)
+
+        constraints.append(Or(or_const))
         constraints.append(Implies((rotated == 0), move == 12))
         for i in range(0, 13):
             face = i//2
@@ -215,7 +244,7 @@ class CubePath:
             self.add_rotation()
 
     def get_constraints(self):
-        return And(self.contraints)
+        return And(self.constraints)
 
 
 class ValueCubeFace:
@@ -347,6 +376,15 @@ class ValueCube:
 
         return (face, vpos*3+hpos)
 
+    def apply_moves(self, model, moves):
+        output = self
+        for move in moves:
+            move = int(str(model[move]))
+            face = move//2
+            dir = move % 2
+            output = output.rotate_face(face, dir)
+        return output
+
     def print_index_chart(self):
         colors = [Fore.RED, Fore.LIGHTMAGENTA_EX,
                   Fore.GREEN, Fore.BLUE, Fore.WHITE, Fore.YELLOW]
@@ -403,7 +441,8 @@ class ValueCube:
 # cubepath = CubePath()
 # cubepath.add_n_rotations(10)
 
-ValueCube().rotate_face(0, 0).rotate_face(2, 1).print_index_chart()
+ValueCube().rotate_face(0, 0).rotate_face(
+    2, 1).rotate_face(5, 1).rotate_face(4, 0).print_index_chart()
 
 
 # print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
@@ -412,6 +451,29 @@ ValueCube().rotate_face(0, 0).rotate_face(2, 1).print_index_chart()
 # print(CubeState.get_neighbor_array_pos(3, 2, NeighborDirection.HP))
 
 print(CubeState.is_attached(1, 8, 3))
+
+cube_path = CubePath()
+value_cube = ValueCube().rotate_face(0, 0).rotate_face(
+    2, 1).rotate_face(5, 1).rotate_face(4, 0)
+cube_path.set_init_constraints(value_cube)
+cube_path.add_n_rotations(7)
+cube_path.add_target_constraint(5, 1, 4)
+cube_path.add_target_constraint(5, 3, 4)
+cube_path.add_target_constraint(5, 5, 4)
+cube_path.add_target_constraint(5, 7, 4)
+cube_path.add_target_constraint(5, 4, 5)
+
+print(cube_path.get_constraints())
+
+model = minimize(cube_path.get_constraints(), cube_path.get_move_count())
+
+value_cube.print_cube()
+for move in cube_path.moves:
+    print(model[move])
+
+final_value_cube = value_cube.apply_moves(model, cube_path.moves)
+
+final_value_cube.print_cube()
 
 
 def solve(phi):
