@@ -11,7 +11,7 @@ from colorama import Style
 import functools
 
 
-def solve(phi, objective):
+def solve(phi):
     s = Solver()
 
     s.append(phi)
@@ -297,7 +297,6 @@ class CubePath:
     def __init__(self):
         self.states = [CubeState(0)]
         self.moves = []
-        self.is_rotated = []
         self.constraints = []
 
     def set_init_constraints(self, value_cube):
@@ -308,28 +307,21 @@ class CubePath:
         self.constraints.append(
             self.states[len(self.states)-1].array[face].array[index] == value)
 
-    def get_move_count(self):
-        return functools.reduce(lambda x, y: x+y, self.is_rotated, 0)
-
     def add_rotation(self):
         constraints = []
         final_state = CubeState(len(self.states))
         move = FlattedBooleanArray("M:"+str(len(self.moves)), 13)
         constraints.append(move.get_sanity_constraints())
-        rotated = Int("R:"+str(len(self.is_rotated)))
         last_state = self.states[len(self.states)-1]
         self.states.append(final_state)
         self.moves.append(move)
-        self.is_rotated.append(rotated)
-
-        constraints.append((rotated >= 0))
 
         or_const = []
         for i in range(0, 13):
             or_const.append(move == i)
 
         constraints.append(Or(or_const))
-        constraints.append(Implies((rotated == 0), move == 12))
+
         for i in range(0, 13):
             face = i//2
             dir = i % 2
@@ -563,7 +555,7 @@ cube_path.add_target_constraint(5, 4, 5)
 
 print(cube_path.get_constraints())
 
-model = minimize(cube_path.get_constraints(), cube_path.get_move_count())
+model = solve(cube_path.get_constraints())
 
 final_value_cube = value_cube.apply_moves(model, cube_path.moves)
 
@@ -572,7 +564,7 @@ final_value_cube.print_cube()
 cube_path = CubePath()
 
 cube_path.set_init_constraints(final_value_cube)
-cube_path.add_n_rotations(7)
+cube_path.add_n_rotations(8)
 cube_path.add_target_constraint(4, 1, 4)
 cube_path.add_target_constraint(4, 3, 4)
 cube_path.add_target_constraint(4, 5, 4)
@@ -582,7 +574,7 @@ cube_path.add_target_constraint(1, 1, 1)
 cube_path.add_target_constraint(2, 3, 2)
 cube_path.add_target_constraint(3, 3, 3)
 
-model = solve(cube_path.get_constraints(), cube_path.get_move_count())
+model = solve(cube_path.get_constraints())
 
 final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
 
