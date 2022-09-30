@@ -59,17 +59,53 @@ class NeighborDirection(Enum):
     HN = 2,
     VN = 3
 
+# An array of Z3 Bools
+
+
+class BooleanArray:
+    def __init__(self, name, size):
+        self.name = name
+        self.size = size
+        self.array = []
+        for i in range(0, size):
+            self.array.append(Bool(name+":"+str(i)))
+
+    def equals(self, other):
+        constraints = []
+        if type(other) == int:
+            for i in range(0, self.size):
+                constraints.append(self.array[i] == (other & 1 == 1))
+                other = other >> 1
+        else:
+            if self.size != other.size:
+                raise Exception("Size mismatch")
+
+            for i in range(0, self.size):
+                constraints.append(self.array[i] == other.array[i])
+        return And(constraints)
+
+    def __eq__(self, other):
+        return self.equals(other)
+
+    def get_int_value_from_model(self, model):
+        ret = 0
+        for i in range(0, self.size):
+            ret = ret << 1
+            if model[self.array[i]]:
+                ret = ret | 1
+        return ret
+
 
 class FaceState:
     def __init__(self, cube, face):
         lead_str = "C:"+str(cube)+"F:"+str(face) + "S:"
         self.array = [
-            BitVec(lead_str+"0", 3), BitVec(lead_str +
-                                            "1", 3), BitVec(lead_str+"2", 3),
-            BitVec(lead_str+"3", 3), BitVec(lead_str +
-                                            "4", 3), BitVec(lead_str+"5", 3),
-            BitVec(lead_str+"6", 3), BitVec(lead_str +
-                                            "7", 3), BitVec(lead_str+"8", 3)
+            BooleanArray(lead_str+"0", 3), BooleanArray(lead_str +
+                                                        "1", 3), BooleanArray(lead_str+"2", 3),
+            BooleanArray(lead_str+"3", 3), BooleanArray(lead_str +
+                                                        "4", 3), BooleanArray(lead_str+"5", 3),
+            BooleanArray(lead_str+"6", 3), BooleanArray(lead_str +
+                                                        "7", 3), BooleanArray(lead_str+"8", 3)
         ]
 
     def get_bits(self, square):
@@ -423,6 +459,7 @@ class ValueCube:
                         print("-", end="-")
                     else:
                         print(" ", end=" ")
+        print("")
 
     def print_cube(self):
         self.print_index_chart()
@@ -440,7 +477,6 @@ class ValueCube:
 
 # cubepath = CubePath()
 # cubepath.add_n_rotations(10)
-
 ValueCube().rotate_face(0, 0).rotate_face(
     2, 1).rotate_face(5, 1).rotate_face(4, 0).print_index_chart()
 
@@ -467,11 +503,26 @@ print(cube_path.get_constraints())
 
 model = minimize(cube_path.get_constraints(), cube_path.get_move_count())
 
-value_cube.print_cube()
-for move in cube_path.moves:
-    print(model[move])
-
 final_value_cube = value_cube.apply_moves(model, cube_path.moves)
+
+final_value_cube.print_cube()
+
+cube_path = CubePath()
+
+cube_path.set_init_constraints(final_value_cube)
+cube_path.add_n_rotations(12)
+cube_path.add_target_constraint(4, 1, 4)
+cube_path.add_target_constraint(4, 3, 4)
+cube_path.add_target_constraint(4, 5, 4)
+cube_path.add_target_constraint(4, 7, 4)
+cube_path.add_target_constraint(0, 1, 0)
+cube_path.add_target_constraint(1, 1, 1)
+cube_path.add_target_constraint(2, 3, 2)
+cube_path.add_target_constraint(3, 3, 3)
+
+model = minimize(cube_path.get_constraints(), cube_path.get_move_count())
+
+final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
 
 final_value_cube.print_cube()
 
