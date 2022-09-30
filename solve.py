@@ -475,6 +475,25 @@ final_value_cube = value_cube.apply_moves(model, cube_path.moves)
 
 final_value_cube.print_cube()
 
+cube_path = CubePath()
+
+cube_path.set_init_constraints(final_value_cube)
+cube_path.add_n_rotations(12)
+cube_path.add_target_constraint(4, 1, 4)
+cube_path.add_target_constraint(4, 3, 4)
+cube_path.add_target_constraint(4, 5, 4)
+cube_path.add_target_constraint(4, 7, 4)
+cube_path.add_target_constraint(0, 1, 0)
+cube_path.add_target_constraint(1, 1, 1)
+cube_path.add_target_constraint(2, 3, 2)
+cube_path.add_target_constraint(3, 3, 3)
+
+model = minimize(cube_path.get_constraints(), cube_path.get_move_count())
+
+final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
+
+final_value_cube.print_cube()
+
 
 def solve(phi):
     s = Solver()
