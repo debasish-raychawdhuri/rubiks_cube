@@ -11,6 +11,19 @@ from colorama import Style
 import functools
 
 
+def solve(phi, objective):
+    s = Solver()
+
+    s.append(phi)
+    c = s.check()
+    if c == sat:
+        return s.model()
+    elif c == unsat:
+        print("unsat")
+    else:
+        print("That was too hard a problem for me, maybe I should go to IITB")
+
+
 def minimize(phi, objective):
     s = Optimize()
     s.add(phi)
@@ -59,6 +72,52 @@ class NeighborDirection(Enum):
     HN = 2,
     VN = 3
 
+
+class FlattedBooleanArray:
+    def __init__(self, name, size):
+        self.name = name
+        self.size = size
+        self.array = []
+        for i in range(0, size):
+            self.array.append(Bool(name+":"+str(i)))
+
+    def equals(self, other):
+        constraints = []
+        if type(other) == int:
+            # check if the corresponding bit is set.
+            return self.array[other]
+        else:
+            if self.size != other.size:
+                raise Exception("Size mismatch")
+
+            for i in range(0, self.size):
+                constraints.append(Implies(self.array[i], other.array[i]))
+                constraints.append(Implies(other.array[i], self.array[i]))
+        return And(constraints)
+
+    # exactly one is true
+    def get_sanity_constraints(self):
+        constraints = []
+        _s = Bool(self.name+".s:0")
+        for i in range(0, self.size):
+            s = Bool(self.name+".s:"+str((i+1)))
+            constraints.append(Implies(_s, s))
+            constraints.append(Implies(self.array[i], s))
+            constraints.append(Implies(_s, Not(self.array[i])))
+            _s = s
+        constraints.append(Or(self.array))
+        return And(constraints)
+
+    def __eq__(self, other):
+        return self.equals(other)
+
+    def get_int_value_from_model(self, model):
+        ret = 0
+        for i in range(0, self.size):
+            if model[self.array[i]]:
+                return i
+
+
 # An array of Z3 Bools
 
 
@@ -81,7 +140,8 @@ class BooleanArray:
                 raise Exception("Size mismatch")
 
             for i in range(0, self.size):
-                constraints.append(self.array[i] == other.array[i])
+                constraints.append(Implies(self.array[i], other.array[i]))
+                constraints.append(Implies(other.array[i], self.array[i]))
         return And(constraints)
 
     def __eq__(self, other):
@@ -89,10 +149,11 @@ class BooleanArray:
 
     def get_int_value_from_model(self, model):
         ret = 0
-        for i in range(0, self.size):
+        for i in range(self.size-1, -1, -1):
             ret = ret << 1
             if model[self.array[i]]:
                 ret = ret | 1
+
         return ret
 
 
@@ -253,7 +314,8 @@ class CubePath:
     def add_rotation(self):
         constraints = []
         final_state = CubeState(len(self.states))
-        move = BitVec("M:"+str(len(self.moves)), 4)
+        move = FlattedBooleanArray("M:"+str(len(self.moves)), 13)
+        constraints.append(move.get_sanity_constraints())
         rotated = Int("R:"+str(len(self.is_rotated)))
         last_state = self.states[len(self.states)-1]
         self.states.append(final_state)
@@ -415,7 +477,7 @@ class ValueCube:
     def apply_moves(self, model, moves):
         output = self
         for move in moves:
-            move = int(str(model[move]))
+            move = move.get_int_value_from_model(model)
             face = move//2
             dir = move % 2
             output = output.rotate_face(face, dir)
@@ -510,7 +572,7 @@ final_value_cube.print_cube()
 cube_path = CubePath()
 
 cube_path.set_init_constraints(final_value_cube)
-cube_path.add_n_rotations(12)
+cube_path.add_n_rotations(7)
 cube_path.add_target_constraint(4, 1, 4)
 cube_path.add_target_constraint(4, 3, 4)
 cube_path.add_target_constraint(4, 5, 4)
@@ -520,21 +582,8 @@ cube_path.add_target_constraint(1, 1, 1)
 cube_path.add_target_constraint(2, 3, 2)
 cube_path.add_target_constraint(3, 3, 3)
 
-model = minimize(cube_path.get_constraints(), cube_path.get_move_count())
+model = solve(cube_path.get_constraints(), cube_path.get_move_count())
 
 final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
 
 final_value_cube.print_cube()
-
-
-def solve(phi):
-    s = Solver()
-
-    s.append(phi)
-    c = s.check()
-    if c == sat:
-        print(s.model())
-    elif c == unsat:
-        print("unsat")
-    else:
-        print("That was too hard a problem for me, maybe I should go to IITB")
