@@ -3,12 +3,13 @@ from asyncio import constants
 from ctypes.wintypes import HPALETTE
 from multiprocessing.sharedctypes import Value
 from operator import mod
+from re import M
 from z3 import *
 from enum import Enum
 from colorama import Fore
 from colorama import Style
 
-import functools
+import time
 
 
 def solve(phi):
@@ -336,6 +337,59 @@ class CubePath:
     def get_constraints(self):
         return And(self.constraints)
 
+    @staticmethod
+    def faces_to_relative(front_face, left_face):
+        faces = ['L', 'L', 'L', 'L', 'L', 'L']
+        faces[front_face] = 'F'
+        back_face = front_face ^ 0x1
+        faces[back_face] = 'B'
+        faces[left_face] = 'L'
+        right_face = left_face ^ 0x1
+        faces[right_face] = 'R'
+
+        left_axis = left_face//2
+        front_axis = front_face//2
+
+        if left_axis == (front_axis + 1) % 3:
+            top_axis = (left_axis + 1) % 3
+            top_face = (top_axis << 1) + ((left_face & 0x1)
+                                          ^ (front_face & 0x1))
+            bot_face = top_face ^ 0x1
+        else:
+            top_axis = (front_axis+2) % 3
+            top_face = (top_axis << 1) + ((left_face & 0x1)
+                                          ^ (front_face & 0x1) ^ 0x1)
+            bot_face = top_face ^ 0x1
+        faces[top_face] = 'U'
+        faces[bot_face] = 'D'
+        return faces
+
+    def get_relative_moves(self, model, front_face, left_face):
+        relative_moves = []
+        relative_faces = CubePath.faces_to_relative(front_face, left_face)
+        for move in self.moves:
+            move = move.get_int_value_from_model(model)
+            face = move//2
+            dir = move % 2
+            if face == 6:
+                continue
+            relative_dir = dir ^ (0x1 & face)
+            relative_face = relative_faces[face]
+            if relative_dir == 1:
+                tick = "'"
+            else:
+                tick = ""
+            relative_move = relative_face + tick
+            relative_moves.append(relative_move)
+        return relative_moves
+
+    def print_relative_moves(self, model, front_face, left_face):
+        relative_moves = self.get_relative_moves(model, front_face, left_face)
+        print("Front: "+str(front_face)+", Left:"+str(left_face))
+        for rm in relative_moves:
+            print(rm, end=",")
+        print("")
+
 
 class ValueCubeFace:
     def __init__(self, id):
@@ -528,7 +582,6 @@ class ValueCube:
 # cond2 = Implies(x > y, b2)
 # phi = And(cond1, cond2, Or(b1, b2), x >= 0, y > 0)
 # minimize(phi, x)
-
 # cubepath = CubePath()
 # cubepath.add_n_rotations(10)
 ValueCube().rotate_face(0, 0).rotate_face(
@@ -547,24 +600,28 @@ value_cube = ValueCube().rotate_face(0, 0).rotate_face(
     2, 1).rotate_face(5, 1).rotate_face(4, 0)
 cube_path.set_init_constraints(value_cube)
 cube_path.add_n_rotations(7)
+
+# Target is the Daisy-like structure
 cube_path.add_target_constraint(5, 1, 4)
 cube_path.add_target_constraint(5, 3, 4)
 cube_path.add_target_constraint(5, 5, 4)
 cube_path.add_target_constraint(5, 7, 4)
 cube_path.add_target_constraint(5, 4, 5)
 
-print(cube_path.get_constraints())
 
 model = solve(cube_path.get_constraints())
 
 final_value_cube = value_cube.apply_moves(model, cube_path.moves)
 
+cube_path.print_relative_moves(model, 0, 2)
 final_value_cube.print_cube()
 
 cube_path = CubePath()
 
 cube_path.set_init_constraints(final_value_cube)
-cube_path.add_n_rotations(8)
+cube_path.add_n_rotations(9)
+
+# Target is the white side cross done with matching sides
 cube_path.add_target_constraint(4, 1, 4)
 cube_path.add_target_constraint(4, 3, 4)
 cube_path.add_target_constraint(4, 5, 4)
@@ -574,8 +631,12 @@ cube_path.add_target_constraint(1, 1, 1)
 cube_path.add_target_constraint(2, 3, 2)
 cube_path.add_target_constraint(3, 3, 3)
 
+start_time = time.time()
 model = solve(cube_path.get_constraints())
+end_time = time.time()
+print("%s" % (end_time-start_time))
 
 final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
 
+cube_path.print_relative_moves(model, 0, 2)
 final_value_cube.print_cube()
