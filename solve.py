@@ -10,6 +10,7 @@ from colorama import Fore
 from colorama import Style
 
 import time
+import random
 
 
 def solve(phi):
@@ -20,7 +21,7 @@ def solve(phi):
     if c == sat:
         return s.model()
     elif c == unsat:
-        print("unsat")
+        return unsat
     else:
         print("That was too hard a problem for me, maybe I should go to IITB")
 
@@ -111,6 +112,9 @@ class FlattedBooleanArray:
 
     def __eq__(self, other):
         return self.equals(other)
+
+    def __ne__(self, other):
+        return Not(self.equals(other))
 
     def get_int_value_from_model(self, model):
         ret = 0
@@ -311,28 +315,58 @@ class CubePath:
     def add_rotation(self):
         constraints = []
         final_state = CubeState(len(self.states))
-        move = FlattedBooleanArray("M:"+str(len(self.moves)), 13)
+        # No-ops move need not be considered since we are going one rotation at a time and the it was unsat with less rotations
+        move = FlattedBooleanArray("M:"+str(len(self.moves)), 12)
         constraints.append(move.get_sanity_constraints())
         last_state = self.states[len(self.states)-1]
         self.states.append(final_state)
         self.moves.append(move)
 
         or_const = []
-        for i in range(0, 13):
+        for i in range(0, 12):
             or_const.append(move == i)
 
         constraints.append(Or(or_const))
 
-        for i in range(0, 13):
+        for i in range(0, 12):
             face = i//2
             dir = i % 2
             constraints.append(Implies(move == i,
                                last_state.rotate_face(final_state, face, dir)))
         self.constraints.append(And(constraints))
 
+    def add_helper_constraints(self):
+        # A move and its reversal must not happen consequitively
+        for i in range(1, len(self.moves)):
+            this_move = self.moves[i]
+            prev_move = self.moves[i-1]
+            for j in range(0, 12):
+                opp = j ^ 0x1
+                self.constraints.append(
+                    Implies(this_move == j, prev_move != opp))
+
+        # three consequitive same move cannot happen because that is equivalent to the opposite move once
+        for i in range(2, len(self.moves)):
+            this_move = self.moves[i]
+            prev_move = self.moves[i-1]
+            prev_prev_move = self.moves[i-2]
+            for j in range(0, 12):
+                self.constraints.append(
+                    Implies(this_move == j, Implies(prev_move == j, prev_prev_move != j)))
+
+        # two consequitve same anti-clockwise moves are disallowed since that is equivalent to two consequitive clockwise moves
+        for i in range(1, len(self.moves)):
+            this_move = self.moves[i]
+            prev_move = self.moves[i-1]
+            prev_prev_move = self.moves[i-2]
+            for j in range(1, 12, 2):
+                self.constraints.append(
+                    Implies(this_move == j, prev_move != j))
+
     def add_n_rotations(self, n):
         for i in range(0, n):
             self.add_rotation()
+        self.add_helper_constraints()
 
     def get_constraints(self):
         return And(self.constraints)
@@ -584,8 +618,143 @@ class ValueCube:
 # minimize(phi, x)
 # cubepath = CubePath()
 # cubepath.add_n_rotations(10)
-ValueCube().rotate_face(0, 0).rotate_face(
-    2, 1).rotate_face(5, 1).rotate_face(4, 0).print_index_chart()
+
+# An incremental cube solver
+class CubeSolver:
+    def __init__(self, starting_cube: ValueCube):
+        self.value_cube = starting_cube
+        self.target_constraints = []
+
+    def add_target_constraint(self, face, index, value):
+        self.target_constraints.append((face, index, value))
+
+    def solve_minimum(self):
+        max_unsat = 0
+        min_sat = 15
+        try_sat = 0
+        while (True):
+
+            try_sat = try_sat+1  # (max_unsat+min_sat)//2
+            print(try_sat)
+            #print("min_sat:%d, max_unsat: %d" % (min_sat, max_unsat))
+            # if min_sat == max_unsat+1:
+            #     break
+            cube_path = CubePath()
+
+            cube_path.set_init_constraints(self.value_cube)
+
+            cube_path.add_n_rotations(try_sat)
+
+            for c in self.target_constraints:
+                cube_path.add_target_constraint(c[0], c[1], c[2])
+            start_ts = time.time_ns()
+            res = solve(cube_path.get_constraints())
+            end_ts = time.time_ns()
+            diff = end_ts - start_ts
+            print("%s" % (diff/1000000000))
+            if res == unsat:
+                max_unsat = try_sat
+            else:
+                min_sat = try_sat
+                self.model = res
+                self.cube_path = cube_path
+                break
+
+        self.value_cube = self.value_cube.apply_moves(
+            self.model, self.cube_path.moves)
+
+        return self.model
+
+    def print_cube(self):
+        self.value_cube.print_cube()
+
+    def print_moves(self, front, left):
+        self.cube_path.print_relative_moves(self.model, front, left)
+
+
+start_cube = ValueCube().rotate_face(0, 0).rotate_face(
+    2, 1).rotate_face(5, 1).rotate_face(4, 0)
+
+for i in range(0, 20):
+    face = int(random.random()*6)
+    dir = int(random.random()*2)
+    start_cube = start_cube.rotate_face(face, dir)
+
+start_cube.print_cube()
+
+cube_solver = CubeSolver(start_cube)
+cube_solver.add_target_constraint(5, 1, 4)
+cube_solver.add_target_constraint(5, 3, 4)
+cube_solver.add_target_constraint(5, 5, 4)
+cube_solver.add_target_constraint(5, 7, 4)
+cube_solver.add_target_constraint(5, 4, 5)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
+
+cube_solver = CubeSolver(cube_solver.value_cube)
+cube_solver.add_target_constraint(4, 1, 4)
+cube_solver.add_target_constraint(4, 3, 4)
+cube_solver.add_target_constraint(4, 5, 4)
+cube_solver.add_target_constraint(4, 7, 4)
+cube_solver.add_target_constraint(0, 1, 0)
+cube_solver.add_target_constraint(1, 1, 1)
+cube_solver.add_target_constraint(2, 3, 2)
+cube_solver.add_target_constraint(3, 3, 3)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
+
+
+for face in range(0, 4):
+    for index in range(0, 9):
+        if CubeState.is_attached(face, index, 4):
+            cube_solver.add_target_constraint(face, index, face)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
+
+for face in range(0, 4):
+    for index in range(0, 9):
+        if (not CubeState.is_attached(face, index, 4)) and (CubeState.is_attached(face, index, 5)):
+            cube_solver.add_target_constraint(face, index, face)
+
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+
+cube_solver.add_target_constraint(5, 1, 5)
+cube_solver.add_target_constraint(5, 3, 5)
+cube_solver.add_target_constraint(5, 5, 5)
+cube_solver.add_target_constraint(5, 7, 5)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+
+for index in range(0, 9):
+    cube_solver.add_target_constraint(5, i, 5)
+
+for face in range(0, 4):
+    for index in range(0, 9):
+        if CubeState.is_attached(face, index, 5):
+            cube_solver.add_target_constraint(face, index, face)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
 
 
 # print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
@@ -593,50 +762,71 @@ ValueCube().rotate_face(0, 0).rotate_face(
 # print(CubeState.get_neighbor_array_pos(3, 8, NeighborDirection.VP))
 # print(CubeState.get_neighbor_array_pos(3, 2, NeighborDirection.HP))
 
-print(CubeState.is_attached(1, 8, 3))
+# print(CubeState.is_attached(1, 8, 3))
 
-cube_path = CubePath()
-value_cube = ValueCube().rotate_face(0, 0).rotate_face(
-    2, 1).rotate_face(5, 1).rotate_face(4, 0)
-cube_path.set_init_constraints(value_cube)
-cube_path.add_n_rotations(7)
+# cube_path = CubePath()
+# value_cube = ValueCube().rotate_face(0, 0).rotate_face(
+#     2, 1).rotate_face(5, 1).rotate_face(4, 0)
+# cube_path.set_init_constraints(value_cube)
+# cube_path.add_n_rotations(7)
 
-# Target is the Daisy-like structure
-cube_path.add_target_constraint(5, 1, 4)
-cube_path.add_target_constraint(5, 3, 4)
-cube_path.add_target_constraint(5, 5, 4)
-cube_path.add_target_constraint(5, 7, 4)
-cube_path.add_target_constraint(5, 4, 5)
+# # Target is the Daisy-like structure
+# cube_path.add_target_constraint(5, 1, 4)
+# cube_path.add_target_constraint(5, 3, 4)
+# cube_path.add_target_constraint(5, 5, 4)
+# cube_path.add_target_constraint(5, 7, 4)
+# cube_path.add_target_constraint(5, 4, 5)
 
 
-model = solve(cube_path.get_constraints())
+# model = solve(cube_path.get_constraints())
 
-final_value_cube = value_cube.apply_moves(model, cube_path.moves)
+# final_value_cube = value_cube.apply_moves(model, cube_path.moves)
 
-cube_path.print_relative_moves(model, 0, 2)
-final_value_cube.print_cube()
+# cube_path.print_relative_moves(model, 0, 2)
+# final_value_cube.print_cube()
 
-cube_path = CubePath()
+# cube_path = CubePath()
 
-cube_path.set_init_constraints(final_value_cube)
-cube_path.add_n_rotations(9)
+# cube_path.set_init_constraints(final_value_cube)
+# cube_path.add_n_rotations(9)
 
-# Target is the white side cross done with matching sides
-cube_path.add_target_constraint(4, 1, 4)
-cube_path.add_target_constraint(4, 3, 4)
-cube_path.add_target_constraint(4, 5, 4)
-cube_path.add_target_constraint(4, 7, 4)
-cube_path.add_target_constraint(0, 1, 0)
-cube_path.add_target_constraint(1, 1, 1)
-cube_path.add_target_constraint(2, 3, 2)
-cube_path.add_target_constraint(3, 3, 3)
+# # Target is the white side cross done with matching sides
+# cube_path.add_target_constraint(4, 1, 4)
+# cube_path.add_target_constraint(4, 3, 4)
+# cube_path.add_target_constraint(4, 5, 4)
+# cube_path.add_target_constraint(4, 7, 4)
+# cube_path.add_target_constraint(0, 1, 0)
+# cube_path.add_target_constraint(1, 1, 1)
+# cube_path.add_target_constraint(2, 3, 2)
+# cube_path.add_target_constraint(3, 3, 3)
 
-start_time = time.time()
-model = solve(cube_path.get_constraints())
-end_time = time.time()
-print("%s" % (end_time-start_time))
+# start_time = time.time()
+# model = solve(cube_path.get_constraints())
+# end_time = time.time()
+# print("%s" % (end_time-start_time))
 
-final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
+# final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
 
-cube_path.print_relative_moves(model, 0, 2)
-final_value_cube.print_cube()
+# cube_path.print_relative_moves(model, 0, 2)
+# final_value_cube.print_cube()
+
+
+# cube_path = CubePath()
+# value_cube = ValueCube().rotate_face(0, 0).rotate_face(
+#     2, 1).rotate_face(5, 1).rotate_face(4, 0)
+# for i in range(0, 20):
+#     face = int(random.random()*6)
+#     dir = int(random.random()*2)
+#     value_cube = value_cube.rotate_face(face, dir)
+# cube_path.set_init_constraints(value_cube)
+# cube_path.add_n_rotations(20)
+# value_cube.print_cube()
+# for face in range(0, 6):
+#     for i in range(0, 9):
+#         cube_path.add_target_constraint(face, i, face)
+# model = solve(cube_path.get_constraints())
+
+# final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
+
+# cube_path.print_relative_moves(model, 0, 2)
+# final_value_cube.print_cube()
