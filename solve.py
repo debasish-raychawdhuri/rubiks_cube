@@ -100,13 +100,11 @@ class FlattedBooleanArray:
     # exactly one is true
     def get_sanity_constraints(self):
         constraints = []
-        _s = Bool(self.name+".s:0")
+        # Quadratic number of constraints, but better EVIDS scoring and better unit propagation compared to using additional varriables
         for i in range(0, self.size):
-            s = Bool(self.name+".s:"+str((i+1)))
-            constraints.append(Implies(_s, s))
-            constraints.append(Implies(self.array[i], s))
-            constraints.append(Implies(_s, Not(self.array[i])))
-            _s = s
+            for j in range(i+1, self.size):
+                constraints.append(
+                    Or(Not(self.array[i]), Not(self.array[j])))
         constraints.append(Or(self.array))
         return And(constraints)
 
@@ -228,7 +226,7 @@ class CubeState:
 
     # Rotates positive face anti clockwise and negative face clockwise
 
-    def __rotate_face(self, final_state, face):
+    def __rotate_face(self, move_condition, final_state, face):
         constraints = []
         rotation_map = [2, 5, 8, 1, 4, 7, 0, 3, 6]
 
@@ -240,8 +238,8 @@ class CubeState:
 
         for i in range(0, 9):
             f_i = rotation_map[i]
-            constraints.append(self.array[face].array[i] ==
-                               final_state.array[face].array[f_i])
+            constraints.append(Implies(move_condition, self.array[face].array[i] ==
+                               final_state.array[face].array[f_i]))
             hn_pos = CubeState.get_neighbor_array_pos(
                 face, i, NeighborDirection.HN)
             hp_pos = CubeState.get_neighbor_array_pos(
@@ -254,48 +252,48 @@ class CubeState:
             if hn_pos >= 0:
                 nvn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VN)
-                constraints.append(self.array[face_h_neg].array[hn_pos] ==
-                                   final_state.array[face_v_neg].array[nvn_pos])
+                constraints.append(Implies(move_condition, self.array[face_h_neg].array[hn_pos] ==
+                                   final_state.array[face_v_neg].array[nvn_pos]))
             if vn_pos >= 0:
                 nhp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HP)
-                constraints.append(self.array[face_v_neg].array[vn_pos] ==
-                                   final_state.array[face_h_pos].array[nhp_pos])
+                constraints.append(Implies(move_condition, self.array[face_v_neg].array[vn_pos] ==
+                                   final_state.array[face_h_pos].array[nhp_pos]))
             if hp_pos >= 0:
                 nvp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VP)
-                constraints.append(self.array[face_h_pos].array[hp_pos] ==
-                                   final_state.array[face_v_pos].array[nvp_pos])
+                constraints.append(Implies(move_condition, self.array[face_h_pos].array[hp_pos] ==
+                                   final_state.array[face_v_pos].array[nvp_pos]))
 
             if vp_pos >= 0:
                 nhn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HN)
-                constraints.append(self.array[face_v_pos].array[vp_pos] ==
-                                   final_state.array[face_h_neg].array[nhn_pos])
+                constraints.append(Implies(move_condition, self.array[face_v_pos].array[vp_pos] ==
+                                   final_state.array[face_h_neg].array[nhn_pos]))
 
         for f in range(0, 6):
             if f != face:
                 for i in range(0, 9):
                     if not CubeState.is_attached(f, i, face):
-                        constraints.append(
-                            self.array[f].array[i] == final_state.array[f].array[i])
+                        constraints.append(Implies(move_condition,
+                                                   self.array[f].array[i] == final_state.array[f].array[i]))
         return And(constraints)
 
-    def __rotate_nothing(self, final_state):
+    def __rotate_nothing(self, move_condition, final_state):
         constraints = []
         for f in range(0, 6):
             for i in range(0, 9):
-                constraints.append(
-                    self.array[f].array[i] == final_state.array[f].array[i])
+                constraints.append(Implies(move_condition,
+                                           self.array[f].array[i] == final_state.array[f].array[i]))
         return And(constraints)
 
-    def rotate_face(self, final_state, face, dir):
+    def rotate_face(self, move_condition, final_state, face, dir):
         if face == 6:
-            return self.__rotate_nothing(final_state)
+            return self.__rotate_nothing(move_condition, final_state)
         if dir == 0:
-            return self.__rotate_face(final_state, face)
+            return self.__rotate_face(move_condition, final_state, face)
         else:
-            return final_state.__rotate_face(self, face)
+            return final_state.__rotate_face(move_condition, self, face)
 
 
 class CubePath:
@@ -303,6 +301,7 @@ class CubePath:
         self.states = [CubeState(0)]
         self.moves = []
         self.constraints = []
+        self.restricted = False
 
     def set_init_constraints(self, value_cube):
         self.constraints.append(
@@ -312,27 +311,26 @@ class CubePath:
         self.constraints.append(
             self.states[len(self.states)-1].array[face].array[index] == value)
 
+    def set_restricted_movement(self):
+        self.restricted = True
+
     def add_rotation(self):
         constraints = []
         final_state = CubeState(len(self.states))
         # No-ops move need not be considered since we are going one rotation at a time and the it was unsat with less rotations
-        move = FlattedBooleanArray("M:"+str(len(self.moves)), 12)
+        move = FlattedBooleanArray("M:"+str(len(self.moves)), 13)
         constraints.append(move.get_sanity_constraints())
         last_state = self.states[len(self.states)-1]
         self.states.append(final_state)
         self.moves.append(move)
 
-        or_const = []
-        for i in range(0, 12):
-            or_const.append(move == i)
-
-        constraints.append(Or(or_const))
-
-        for i in range(0, 12):
+        for i in range(0, 13):
             face = i//2
             dir = i % 2
-            constraints.append(Implies(move == i,
-                               last_state.rotate_face(final_state, face, dir)))
+            if self.restricted and (face == 0 or face == 1 or face == 2):
+                constraints.append(move != i)
+            constraints.append(
+                last_state.rotate_face(move == i, final_state, face, dir))
         self.constraints.append(And(constraints))
 
     def add_helper_constraints(self):
@@ -624,9 +622,13 @@ class CubeSolver:
     def __init__(self, starting_cube: ValueCube):
         self.value_cube = starting_cube
         self.target_constraints = []
+        self.restricted = False
 
     def add_target_constraint(self, face, index, value):
         self.target_constraints.append((face, index, value))
+
+    def set_restricted(self):
+        self.restricted = True
 
     def solve_minimum(self):
         max_unsat = 0
@@ -634,12 +636,14 @@ class CubeSolver:
         try_sat = 0
         while (True):
 
-            try_sat = try_sat+1  # (max_unsat+min_sat)//2
+            # (max_unsat+min_sat)//2
             print(try_sat)
             #print("min_sat:%d, max_unsat: %d" % (min_sat, max_unsat))
             # if min_sat == max_unsat+1:
             #     break
             cube_path = CubePath()
+            if self.restricted:
+                cube_path.set_restricted_movement()
 
             cube_path.set_init_constraints(self.value_cube)
 
@@ -659,6 +663,7 @@ class CubeSolver:
                 self.model = res
                 self.cube_path = cube_path
                 break
+            try_sat = try_sat+1
 
         self.value_cube = self.value_cube.apply_moves(
             self.model, self.cube_path.moves)
@@ -710,21 +715,42 @@ cube_solver.print_moves(0, 2)
 cube_solver.print_cube()
 
 
-for face in range(0, 4):
-    for index in range(0, 9):
-        if CubeState.is_attached(face, index, 4):
-            cube_solver.add_target_constraint(face, index, face)
+# Half of the white corners.
+cube_solver.add_target_constraint(4, 0, 4)
+cube_solver.add_target_constraint(4, 6, 4)
+
+cube_solver.add_target_constraint(2, 0, 2)
+cube_solver.add_target_constraint(0, 0, 0)
+cube_solver.add_target_constraint(0, 2, 0)
+
+cube_solver.add_target_constraint(3, 0, 3)
 
 model = cube_solver.solve_minimum()
 
 cube_solver.print_moves(0, 2)
 cube_solver.print_cube()
 
-for face in range(0, 4):
-    for index in range(0, 9):
-        if (not CubeState.is_attached(face, index, 4)) and (CubeState.is_attached(face, index, 5)):
-            cube_solver.add_target_constraint(face, index, face)
+# The other half of the white corners.
+cube_solver.add_target_constraint(4, 2, 4)
+cube_solver.add_target_constraint(4, 8, 4)
 
+
+cube_solver.add_target_constraint(2, 6, 2)
+cube_solver.add_target_constraint(3, 6, 3)
+cube_solver.add_target_constraint(1, 0, 1)
+cube_solver.add_target_constraint(1, 2, 1)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
+
+# Half of Layer 2
+
+cube_solver.add_target_constraint(0, 3, 0)
+cube_solver.add_target_constraint(0, 5, 0)
+cube_solver.add_target_constraint(2, 1, 2)
+cube_solver.add_target_constraint(3, 1, 3)
 
 model = cube_solver.solve_minimum()
 
@@ -732,24 +758,92 @@ cube_solver.print_moves(0, 3)
 cube_solver.print_cube()
 
 
+# One quarter of layer 2
+
+cube_solver.add_target_constraint(1, 3, 1)
+cube_solver.add_target_constraint(2, 7, 2)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+# The final piece in layer 2
+
+cube_solver.add_target_constraint(1, 5, 1)
+cube_solver.add_target_constraint(3, 7, 3)
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+
+# Top face Cross
 cube_solver.add_target_constraint(5, 1, 5)
 cube_solver.add_target_constraint(5, 3, 5)
-cube_solver.add_target_constraint(5, 5, 5)
-cube_solver.add_target_constraint(5, 7, 5)
 
 model = cube_solver.solve_minimum()
 
 cube_solver.print_moves(0, 3)
 cube_solver.print_cube()
 
+cube_solver.add_target_constraint(5, 5, 5)
+cube_solver.add_target_constraint(5, 7, 5)
+model = cube_solver.solve_minimum()
 
-for index in range(0, 9):
-    cube_solver.add_target_constraint(5, i, 5)
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
 
-for face in range(0, 4):
-    for index in range(0, 9):
-        if CubeState.is_attached(face, index, 5):
-            cube_solver.add_target_constraint(face, index, face)
+
+# Top face cross matching sides
+cube_solver.add_target_constraint(1, 7, 1)
+cube_solver.add_target_constraint(3, 5, 3)
+# model = cube_solver.solve_minimum()
+
+# cube_solver.print_moves(0, 3)
+# cube_solver.print_cube()
+
+
+cube_solver.add_target_constraint(2, 5, 2)
+cube_solver.add_target_constraint(0, 7, 0)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+# Top face two corners
+
+cube_solver.add_target_constraint(5, 0, 5)
+cube_solver.add_target_constraint(2, 2, 2)
+cube_solver.add_target_constraint(0, 6, 0)
+
+
+# model = cube_solver.solve_minimum()
+
+# cube_solver.print_moves(0, 3)
+# cube_solver.print_cube()
+
+cube_solver.add_target_constraint(5, 6, 5)
+cube_solver.add_target_constraint(0, 8, 0)
+cube_solver.add_target_constraint(3, 2, 3)
+
+
+# model = cube_solver.solve_minimum()
+
+# cube_solver.print_moves(0, 3)
+# cube_solver.print_cube()
+
+# The last two corners
+
+# Top face two corners
+cube_solver.add_target_constraint(5, 2, 5)
+cube_solver.add_target_constraint(5, 8, 5)
+cube_solver.add_target_constraint(2, 8, 2)
+cube_solver.add_target_constraint(1, 6, 1)
+cube_solver.add_target_constraint(1, 8, 1)
+cube_solver.add_target_constraint(3, 8, 3)
+
 
 model = cube_solver.solve_minimum()
 
