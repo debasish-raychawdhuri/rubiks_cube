@@ -3,12 +3,27 @@ from asyncio import constants
 from ctypes.wintypes import HPALETTE
 from multiprocessing.sharedctypes import Value
 from operator import mod
+from re import M
 from z3 import *
 from enum import Enum
 from colorama import Fore
 from colorama import Style
 
-import functools
+import time
+import random
+
+
+def solve(phi):
+    s = Solver()
+
+    s.append(phi)
+    c = s.check()
+    if c == sat:
+        return s.model()
+    elif c == unsat:
+        return unsat
+    else:
+        print("That was too hard a problem for me, maybe I should go to IITB")
 
 
 def minimize(phi, objective):
@@ -60,16 +75,101 @@ class NeighborDirection(Enum):
     VN = 3
 
 
+class FlattedBooleanArray:
+    def __init__(self, name, size):
+        self.name = name
+        self.size = size
+        self.array = []
+        for i in range(0, size):
+            self.array.append(Bool(name+":"+str(i)))
+
+    def equals(self, other):
+        constraints = []
+        if type(other) == int:
+            # check if the corresponding bit is set.
+            return self.array[other]
+        else:
+            if self.size != other.size:
+                raise Exception("Size mismatch")
+
+            for i in range(0, self.size):
+                constraints.append(Implies(self.array[i], other.array[i]))
+                constraints.append(Implies(other.array[i], self.array[i]))
+        return And(constraints)
+
+    # exactly one is true
+    def get_sanity_constraints(self):
+        constraints = []
+        # Quadratic number of constraints, but better EVIDS scoring and better unit propagation compared to using additional varriables
+        for i in range(0, self.size):
+            for j in range(i+1, self.size):
+                constraints.append(
+                    Or(Not(self.array[i]), Not(self.array[j])))
+        constraints.append(Or(self.array))
+        return And(constraints)
+
+    def __eq__(self, other):
+        return self.equals(other)
+
+    def __ne__(self, other):
+        return Not(self.equals(other))
+
+    def get_int_value_from_model(self, model):
+        ret = 0
+        for i in range(0, self.size):
+            if model[self.array[i]]:
+                return i
+
+
+# An array of Z3 Bools
+
+
+class BooleanArray:
+    def __init__(self, name, size):
+        self.name = name
+        self.size = size
+        self.array = []
+        for i in range(0, size):
+            self.array.append(Bool(name+":"+str(i)))
+
+    def equals(self, other):
+        constraints = []
+        if type(other) == int:
+            for i in range(0, self.size):
+                constraints.append(self.array[i] == (other & 1 == 1))
+                other = other >> 1
+        else:
+            if self.size != other.size:
+                raise Exception("Size mismatch")
+
+            for i in range(0, self.size):
+                constraints.append(Implies(self.array[i], other.array[i]))
+                constraints.append(Implies(other.array[i], self.array[i]))
+        return And(constraints)
+
+    def __eq__(self, other):
+        return self.equals(other)
+
+    def get_int_value_from_model(self, model):
+        ret = 0
+        for i in range(self.size-1, -1, -1):
+            ret = ret << 1
+            if model[self.array[i]]:
+                ret = ret | 1
+
+        return ret
+
+
 class FaceState:
     def __init__(self, cube, face):
         lead_str = "C:"+str(cube)+"F:"+str(face) + "S:"
         self.array = [
-            BitVec(lead_str+"0", 3), BitVec(lead_str +
-                                            "1", 3), BitVec(lead_str+"2", 3),
-            BitVec(lead_str+"3", 3), BitVec(lead_str +
-                                            "4", 3), BitVec(lead_str+"5", 3),
-            BitVec(lead_str+"6", 3), BitVec(lead_str +
-                                            "7", 3), BitVec(lead_str+"8", 3)
+            BooleanArray(lead_str+"0", 3), BooleanArray(lead_str +
+                                                        "1", 3), BooleanArray(lead_str+"2", 3),
+            BooleanArray(lead_str+"3", 3), BooleanArray(lead_str +
+                                                        "4", 3), BooleanArray(lead_str+"5", 3),
+            BooleanArray(lead_str+"6", 3), BooleanArray(lead_str +
+                                                        "7", 3), BooleanArray(lead_str+"8", 3)
         ]
 
     def get_bits(self, square):
@@ -126,7 +226,7 @@ class CubeState:
 
     # Rotates positive face anti clockwise and negative face clockwise
 
-    def __rotate_face(self, final_state, face):
+    def __rotate_face(self, move_condition, final_state, face):
         constraints = []
         rotation_map = [2, 5, 8, 1, 4, 7, 0, 3, 6]
 
@@ -138,8 +238,8 @@ class CubeState:
 
         for i in range(0, 9):
             f_i = rotation_map[i]
-            constraints.append(self.array[face].array[i] ==
-                               final_state.array[face].array[f_i])
+            constraints.append(Implies(move_condition, self.array[face].array[i] ==
+                               final_state.array[face].array[f_i]))
             hn_pos = CubeState.get_neighbor_array_pos(
                 face, i, NeighborDirection.HN)
             hp_pos = CubeState.get_neighbor_array_pos(
@@ -152,56 +252,56 @@ class CubeState:
             if hn_pos >= 0:
                 nvn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VN)
-                constraints.append(self.array[face_h_neg].array[hn_pos] ==
-                                   final_state.array[face_v_neg].array[nvn_pos])
+                constraints.append(Implies(move_condition, self.array[face_h_neg].array[hn_pos] ==
+                                   final_state.array[face_v_neg].array[nvn_pos]))
             if vn_pos >= 0:
                 nhp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HP)
-                constraints.append(self.array[face_v_neg].array[vn_pos] ==
-                                   final_state.array[face_h_pos].array[nhp_pos])
+                constraints.append(Implies(move_condition, self.array[face_v_neg].array[vn_pos] ==
+                                   final_state.array[face_h_pos].array[nhp_pos]))
             if hp_pos >= 0:
                 nvp_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.VP)
-                constraints.append(self.array[face_h_pos].array[hp_pos] ==
-                                   final_state.array[face_v_pos].array[nvp_pos])
+                constraints.append(Implies(move_condition, self.array[face_h_pos].array[hp_pos] ==
+                                   final_state.array[face_v_pos].array[nvp_pos]))
 
             if vp_pos >= 0:
                 nhn_pos = CubeState.get_neighbor_array_pos(
                     face, f_i, NeighborDirection.HN)
-                constraints.append(self.array[face_v_pos].array[vp_pos] ==
-                                   final_state.array[face_h_neg].array[nhn_pos])
+                constraints.append(Implies(move_condition, self.array[face_v_pos].array[vp_pos] ==
+                                   final_state.array[face_h_neg].array[nhn_pos]))
 
         for f in range(0, 6):
             if f != face:
                 for i in range(0, 9):
                     if not CubeState.is_attached(f, i, face):
-                        constraints.append(
-                            self.array[f].array[i] == final_state.array[f].array[i])
+                        constraints.append(Implies(move_condition,
+                                                   self.array[f].array[i] == final_state.array[f].array[i]))
         return And(constraints)
 
-    def __rotate_nothing(self, final_state):
+    def __rotate_nothing(self, move_condition, final_state):
         constraints = []
         for f in range(0, 6):
             for i in range(0, 9):
-                constraints.append(
-                    self.array[f].array[i] == final_state.array[f].array[i])
+                constraints.append(Implies(move_condition,
+                                           self.array[f].array[i] == final_state.array[f].array[i]))
         return And(constraints)
 
-    def rotate_face(self, final_state, face, dir):
+    def rotate_face(self, move_condition, final_state, face, dir):
         if face == 6:
-            return self.__rotate_nothing(final_state)
+            return self.__rotate_nothing(move_condition, final_state)
         if dir == 0:
-            return self.__rotate_face(final_state, face)
+            return self.__rotate_face(move_condition, final_state, face)
         else:
-            return final_state.__rotate_face(self, face)
+            return final_state.__rotate_face(move_condition, self, face)
 
 
 class CubePath:
     def __init__(self):
         self.states = [CubeState(0)]
         self.moves = []
-        self.is_rotated = []
         self.constraints = []
+        self.restricted = False
 
     def set_init_constraints(self, value_cube):
         self.constraints.append(
@@ -211,40 +311,128 @@ class CubePath:
         self.constraints.append(
             self.states[len(self.states)-1].array[face].array[index] == value)
 
-    def get_move_count(self):
-        return functools.reduce(lambda x, y: x+y, self.is_rotated, 0)
+    def set_restricted_movement(self):
+        self.restricted = True
 
     def add_rotation(self):
         constraints = []
         final_state = CubeState(len(self.states))
-        move = BitVec("M:"+str(len(self.moves)), 4)
-        rotated = Int("R:"+str(len(self.is_rotated)))
+        # No-ops move need not be considered since we are going one rotation at a time and the it was unsat with less rotations
+        move = FlattedBooleanArray("M:"+str(len(self.moves)), 12)
+        constraints.append(move.get_sanity_constraints())
         last_state = self.states[len(self.states)-1]
         self.states.append(final_state)
         self.moves.append(move)
-        self.is_rotated.append(rotated)
 
-        constraints.append((rotated >= 0))
-
-        or_const = []
-        for i in range(0, 13):
-            or_const.append(move == i)
-
-        constraints.append(Or(or_const))
-        constraints.append(Implies((rotated == 0), move == 12))
-        for i in range(0, 13):
+        for i in range(0, 12):
             face = i//2
             dir = i % 2
-            constraints.append(Implies(move == i,
-                               last_state.rotate_face(final_state, face, dir)))
+            if self.restricted and (face == 4 or face == 5):
+                constraints.append(move != i)
+            constraints.append(
+                last_state.rotate_face(move == i, final_state, face, dir))
         self.constraints.append(And(constraints))
+
+    def add_helper_constraints(self):
+        # A move and its reversal must not happen consequitively
+        for i in range(1, len(self.moves)):
+            this_move = self.moves[i]
+            prev_move = self.moves[i-1]
+            for j in range(0, 12):
+                opp = j ^ 0x1
+                self.constraints.append(
+                    Implies(this_move == j, prev_move != opp))
+
+        # three consequitive same move cannot happen because that is equivalent to the opposite move once
+        for i in range(2, len(self.moves)):
+            this_move = self.moves[i]
+            prev_move = self.moves[i-1]
+            prev_prev_move = self.moves[i-2]
+            for j in range(0, 12):
+                self.constraints.append(
+                    Implies(this_move == j, Implies(prev_move == j, prev_prev_move != j)))
+
+        # two consequitve same anti-clockwise moves are disallowed since that is equivalent to two consequitive clockwise moves
+        for i in range(1, len(self.moves)):
+            this_move = self.moves[i]
+            prev_move = self.moves[i-1]
+            prev_prev_move = self.moves[i-2]
+            for j in range(1, 12, 2):
+                self.constraints.append(
+                    Implies(this_move == j, prev_move != j))
 
     def add_n_rotations(self, n):
         for i in range(0, n):
             self.add_rotation()
+        self.add_helper_constraints()
 
     def get_constraints(self):
         return And(self.constraints)
+
+    @staticmethod
+    def faces_to_relative(front_face, left_face):
+        faces = ['L', 'L', 'L', 'L', 'L', 'L']
+        faces[front_face] = 'F'
+        back_face = front_face ^ 0x1
+        faces[back_face] = 'B'
+        faces[left_face] = 'L'
+        right_face = left_face ^ 0x1
+        faces[right_face] = 'R'
+
+        left_axis = left_face//2
+        front_axis = front_face//2
+
+        if left_axis == (front_axis + 1) % 3:
+            top_axis = (left_axis + 1) % 3
+            top_face = (top_axis << 1) + ((left_face & 0x1)
+                                          ^ (front_face & 0x1))
+            bot_face = top_face ^ 0x1
+        else:
+            top_axis = (front_axis+2) % 3
+            top_face = (top_axis << 1) + ((left_face & 0x1)
+                                          ^ (front_face & 0x1) ^ 0x1)
+            bot_face = top_face ^ 0x1
+        faces[top_face] = 'U'
+        faces[bot_face] = 'D'
+        return faces
+
+    @staticmethod
+    def get_relative_move(face, dir, front_face, left_face):
+        relative_faces = CubePath.faces_to_relative(front_face, left_face)
+        relative_dir = dir ^ (0x1 & face)
+        relative_face = relative_faces[face]
+        if relative_dir == 1:
+            tick = "'"
+        else:
+            tick = ""
+        relative_move = relative_face + tick
+        return relative_move
+
+    def get_relative_moves(self, model, front_face, left_face):
+        relative_moves = []
+        relative_faces = CubePath.faces_to_relative(front_face, left_face)
+        for move in self.moves:
+            move = move.get_int_value_from_model(model)
+            face = move//2
+            dir = move % 2
+            if face == 6:
+                continue
+            relative_dir = dir ^ (0x1 & face)
+            relative_face = relative_faces[face]
+            if relative_dir == 1:
+                tick = "'"
+            else:
+                tick = ""
+            relative_move = relative_face + tick
+            relative_moves.append(relative_move)
+        return relative_moves
+
+    def print_relative_moves(self, model, front_face, left_face):
+        relative_moves = self.get_relative_moves(model, front_face, left_face)
+        print("Front: "+str(front_face)+", Left:"+str(left_face))
+        for rm in relative_moves:
+            print(rm, end=",")
+        print("")
 
 
 class ValueCubeFace:
@@ -379,7 +567,7 @@ class ValueCube:
     def apply_moves(self, model, moves):
         output = self
         for move in moves:
-            move = int(str(model[move]))
+            move = move.get_int_value_from_model(model)
             face = move//2
             dir = move % 2
             output = output.rotate_face(face, dir)
@@ -423,57 +611,115 @@ class ValueCube:
                         print("-", end="-")
                     else:
                         print(" ", end=" ")
+        print("")
 
     def print_cube(self):
         self.print_index_chart()
 
 
-# b1 = Bool("b1")
-# b2 = Bool("b2")
-# x = Int("x")
-# y = Int("y")
-# solver = Solver()
-# cond1 = Implies(x < y, b1)
-# cond2 = Implies(x > y, b2)
-# phi = And(cond1, cond2, Or(b1, b2), x >= 0, y > 0)
-# minimize(phi, x)
+# An incremental cube solver
+class CubeSolver:
+    def __init__(self, starting_cube: ValueCube):
+        self.value_cube = starting_cube
+        self.target_constraints = []
+        self.restricted = False
 
-# cubepath = CubePath()
-# cubepath.add_n_rotations(10)
+    def add_target_constraint(self, face, index, value):
+        self.target_constraints.append((face, index, value))
 
-ValueCube().rotate_face(0, 0).rotate_face(
-    2, 1).rotate_face(5, 1).rotate_face(4, 0).print_index_chart()
+    def set_restricted(self):
+        self.restricted = True
+
+    def solve_minimum(self):
+        max_unsat = 0
+        min_sat = 15
+        try_sat = 0
+        while (True):
+
+            # (max_unsat+min_sat)//2
+            print(try_sat)
+            # print("min_sat:%d, max_unsat: %d" % (min_sat, max_unsat))
+            # if min_sat == max_unsat+1:
+            #     break
+            cube_path = CubePath()
+            if self.restricted:
+                cube_path.set_restricted_movement()
+
+            cube_path.set_init_constraints(self.value_cube)
+
+            cube_path.add_n_rotations(try_sat)
+
+            for c in self.target_constraints:
+                cube_path.add_target_constraint(c[0], c[1], c[2])
+            start_ts = time.time_ns()
+            res = solve(cube_path.get_constraints())
+            end_ts = time.time_ns()
+            diff = end_ts - start_ts
+            print("%s" % (diff/1000000000))
+            if res == unsat:
+                max_unsat = try_sat
+            else:
+                min_sat = try_sat
+                self.model = res
+                self.cube_path = cube_path
+                break
+            try_sat = try_sat+1
+
+        self.value_cube = self.value_cube.apply_moves(
+            self.model, self.cube_path.moves)
+
+        return self.model
+
+    def print_cube(self):
+        self.value_cube.print_cube()
+
+    def print_moves(self, front, left):
+        self.cube_path.print_relative_moves(self.model, front, left)
 
 
-# print(CubeState.get_neighbor_array_pos(0, 2, NeighborDirection.HN))
-# print(CubeState.get_neighbor_array_pos(0, 8, NeighborDirection.VP))
-# print(CubeState.get_neighbor_array_pos(3, 8, NeighborDirection.VP))
-# print(CubeState.get_neighbor_array_pos(3, 2, NeighborDirection.HP))
+scramble = []
+start_cube = ValueCube()
+for i in range(0, 20):
+    face = int(random.random()*6)
+    dir = int(random.random()*2)
+    if i % 5 == 0:
+        print("")
+        start_cube.print_cube()
+    print(CubePath.get_relative_move(face, dir, 0, 2), end=",")
 
-print(CubeState.is_attached(1, 8, 3))
+    start_cube = start_cube.rotate_face(face, dir)
 
-cube_path = CubePath()
-value_cube = ValueCube().rotate_face(0, 0).rotate_face(
-    2, 1).rotate_face(5, 1).rotate_face(4, 0)
-cube_path.set_init_constraints(value_cube)
-cube_path.add_n_rotations(7)
-cube_path.add_target_constraint(5, 1, 4)
-cube_path.add_target_constraint(5, 3, 4)
-cube_path.add_target_constraint(5, 5, 4)
-cube_path.add_target_constraint(5, 7, 4)
-cube_path.add_target_constraint(5, 4, 5)
+print("")
+print("Starting solution")
 
-print(cube_path.get_constraints())
+start_cube.print_cube()
 
-model = minimize(cube_path.get_constraints(), cube_path.get_move_count())
+cube_solver = CubeSolver(start_cube)
+cube_solver.add_target_constraint(5, 1, 4)
+cube_solver.add_target_constraint(5, 3, 4)
+cube_solver.add_target_constraint(5, 5, 4)
+cube_solver.add_target_constraint(5, 7, 4)
+cube_solver.add_target_constraint(5, 4, 5)
 
-value_cube.print_cube()
-for move in cube_path.moves:
-    print(model[move])
+model = cube_solver.solve_minimum()
 
-final_value_cube = value_cube.apply_moves(model, cube_path.moves)
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
 
-final_value_cube.print_cube()
+cube_solver = CubeSolver(cube_solver.value_cube)
+cube_solver.add_target_constraint(4, 1, 4)
+cube_solver.add_target_constraint(4, 3, 4)
+cube_solver.add_target_constraint(4, 5, 4)
+cube_solver.add_target_constraint(4, 7, 4)
+cube_solver.add_target_constraint(0, 1, 0)
+cube_solver.add_target_constraint(1, 1, 1)
+cube_solver.add_target_constraint(2, 3, 2)
+cube_solver.add_target_constraint(3, 3, 3)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
 
 cube_path = CubePath()
 
@@ -495,14 +741,138 @@ final_value_cube = final_value_cube.apply_moves(model, cube_path.moves)
 final_value_cube.print_cube()
 
 
-def solve(phi):
-    s = Solver()
+# Half of the white corners.
+cube_solver.add_target_constraint(4, 0, 4)
+cube_solver.add_target_constraint(4, 6, 4)
 
-    s.append(phi)
-    c = s.check()
-    if c == sat:
-        print(s.model())
-    elif c == unsat:
-        print("unsat")
-    else:
-        print("That was too hard a problem for me, maybe I should go to IITB")
+cube_solver.add_target_constraint(2, 0, 2)
+cube_solver.add_target_constraint(0, 0, 0)
+cube_solver.add_target_constraint(0, 2, 0)
+
+cube_solver.add_target_constraint(3, 0, 3)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
+
+# The other half of the white corners.
+cube_solver.add_target_constraint(4, 2, 4)
+cube_solver.add_target_constraint(4, 8, 4)
+
+
+cube_solver.add_target_constraint(2, 6, 2)
+cube_solver.add_target_constraint(3, 6, 3)
+cube_solver.add_target_constraint(1, 0, 1)
+cube_solver.add_target_constraint(1, 2, 1)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 2)
+cube_solver.print_cube()
+
+# Half of Layer 2
+
+cube_solver.add_target_constraint(0, 3, 0)
+cube_solver.add_target_constraint(0, 5, 0)
+cube_solver.add_target_constraint(2, 1, 2)
+cube_solver.add_target_constraint(3, 1, 3)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+
+# One quarter of layer 2
+
+cube_solver.add_target_constraint(1, 3, 1)
+cube_solver.add_target_constraint(2, 7, 2)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+# The final piece in layer 2
+
+cube_solver.add_target_constraint(1, 5, 1)
+cube_solver.add_target_constraint(3, 7, 3)
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+
+# Top face Cross
+cube_solver.add_target_constraint(5, 1, 5)
+cube_solver.add_target_constraint(5, 3, 5)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+cube_solver.add_target_constraint(5, 5, 5)
+cube_solver.add_target_constraint(5, 7, 5)
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+
+# Top face cross matching sides
+cube_solver.add_target_constraint(1, 7, 1)
+cube_solver.add_target_constraint(3, 5, 3)
+# model = cube_solver.solve_minimum()
+
+# cube_solver.print_moves(0, 3)
+# cube_solver.print_cube()
+
+
+cube_solver.add_target_constraint(2, 5, 2)
+cube_solver.add_target_constraint(0, 7, 0)
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+# Top face one corner
+cube_solver.set_restricted()
+cube_solver.add_target_constraint(5, 0, 5)
+cube_solver.add_target_constraint(2, 2, 2)
+cube_solver.add_target_constraint(0, 6, 0)
+
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
+
+# Top face another corner
+cube_solver.add_target_constraint(5, 6, 5)
+cube_solver.add_target_constraint(0, 8, 0)
+cube_solver.add_target_constraint(3, 2, 3)
+
+
+# model = cube_solver.solve_minimum()
+
+# cube_solver.print_moves(0, 3)
+# cube_solver.print_cube()
+
+# The last two corners
+
+# Top face two corners
+cube_solver.add_target_constraint(5, 2, 5)
+cube_solver.add_target_constraint(5, 8, 5)
+cube_solver.add_target_constraint(2, 8, 2)
+cube_solver.add_target_constraint(1, 6, 1)
+cube_solver.add_target_constraint(1, 8, 1)
+cube_solver.add_target_constraint(3, 8, 3)
+
+
+model = cube_solver.solve_minimum()
+
+cube_solver.print_moves(0, 3)
+cube_solver.print_cube()
